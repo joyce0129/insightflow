@@ -1,0 +1,21 @@
+{
+  "data": [
+    {
+      "t": 5536,
+      "nlist": "nlist",
+      "type": "SM,BBS,BLOG"
+    },
+    {
+      "t": 9,
+      "slist": "slist",
+      "type": "NEWS"
+    },
+    {
+      "t": 615.11,
+      "sn": "sn",
+      "type": "NEWS,SM,BBS,BLOG"
+    }
+  ],
+  "version": "v2",
+  "status": "success"
+}

@@ -1,0 +1,220 @@
+{
+  "data": [
+    [
+      0,
+      0,
+      4189
+    ],
+    [
+      1,
+      0,
+      1080
+    ],
+    [
+      2,
+      0,
+      69
+    ],
+    [
+      3,
+      0,
+      44
+    ],
+    [
+      4,
+      0,
+      33
+    ],
+    [
+      5,
+      0,
+      11
+    ],
+    [
+      6,
+      0,
+      9
+    ],
+    [
+      7,
+      0,
+      9
+    ],
+    [
+      8,
+      0,
+      6
+    ],
+    [
+      9,
+      0,
+      6
+    ],
+    [
+      10,
+      0,
+      4
+    ],
+    [
+      11,
+      0,
+      3
+    ],
+    [
+      12,
+      0,
+      3
+    ],
+    [
+      13,
+      0,
+      3
+    ],
+    [
+      14,
+      0,
+      2
+    ],
+    [
+      15,
+      0,
+      2
+    ],
+    [
+      16,
+      0,
+      2
+    ],
+    [
+      17,
+      0,
+      2
+    ],
+    [
+      18,
+      0,
+      2
+    ],
+    [
+      19,
+      0,
+      2
+    ],
+    [
+      20,
+      0,
+      2
+    ],
+    [
+      21,
+      0,
+      2
+    ],
+    [
+      22,
+      0,
+      2
+    ],
+    [
+      23,
+      0,
+      1
+    ],
+    [
+      24,
+      0,
+      1
+    ]
+  ],
+  "datetooltip": [
+    "2026-05-04~2026-05-10"
+  ],
+  "maxvalue": 4189,
+  "minvalue": 1,
+  "dayinterval": 7,
+  "lastdate": "2026-05-04~2026-05-10",
+  "channels": [
+    "FACEBOOK - 和雲行動服務-iRent汽機車共享",
+    "IG - irent.tw",
+    "THREADS - kdwprincess",
+    "THREADS - kurokawa06",
+    "FACEBOOK - 翻轉國道交通違規",
+    "Dcard論壇 - 汽車",
+    "THREADS - chihmaolinn",
+    "THREADS - iRent",
+    "THREADS - dinoonib",
+    "THREADS - hollly332",
+    "FACEBOOK - 小老婆大魔王 Singer",
+    "Mobile01 - 租車經驗",
+    "THREADS - ccy0329",
+    "YOUTUBE - WoWtchout - 地圖型行車影像分享平台",
+    "FACEBOOK - IEObserve 國際經濟觀察",
+    "FACEBOOK - 東森新聞",
+    "PChome新聞 - 消費",
+    "THREADS - chihmaol",
+    "THREADS - lausiugian",
+    "THREADS - new_happy_drive",
+    "THREADS - yblackjo",
+    "THREADS - yen7011.tw",
+    "巴哈姆特哈拉區 - 場外休憩區",
+    "Dcard論壇 - 網路購物",
+    "Dcard論壇 - 長庚大學"
+  ],
+  "totalday": 7,
+  "sprdtrnd_src": [
+    "FACEBOOK",
+    "IG",
+    "THREADS",
+    "THREADS",
+    "FACEBOOK",
+    "Dcard論壇",
+    "THREADS",
+    "THREADS",
+    "THREADS",
+    "THREADS",
+    "FACEBOOK",
+    "Mobile01",
+    "THREADS",
+    "YOUTUBE",
+    "FACEBOOK",
+    "FACEBOOK",
+    "PChome新聞",
+    "THREADS",
+    "THREADS",
+    "THREADS",
+    "THREADS",
+    "THREADS",
+    "巴哈姆特哈拉區",
+    "Dcard論壇",
+    "Dcard論壇"
+  ],
+  "sprdtrnd_ch": [
+    "和雲行動服務-iRent汽機車共享",
+    "irent.tw",
+    "kdwprincess",
+    "kurokawa06",
+    "翻轉國道交通違規",
+    "汽車",
+    "chihmaolinn",
+    "iRent",
+    "dinoonib",
+    "hollly332",
+    "小老婆大魔王 Singer",
+    "租車經驗",
+    "ccy0329",
+    "WoWtchout - 地圖型行車影像分享平台",
+    "IEObserve 國際經濟觀察",
+    "東森新聞",
+    "消費",
+    "chihmaol",
+    "lausiugian",
+    "new_happy_drive",
+    "yblackjo",
+    "yen7011.tw",
+    "場外休憩區",
+    "網路購物",
+    "長庚大學"
+  ],
+  "version": "v2",
+  "status": "success"
+}
