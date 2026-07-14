@@ -2,11 +2,11 @@ import os
 import matplotlib.pyplot as plt
 from wordcloud import WordCloud
 
-def generate_volume_trend_chart(trend):
+def generate_volume_trend_chart(trend, brand_name="品牌", out_dir="output/charts"):
     import os
     import matplotlib.pyplot as plt
 
-    os.makedirs("output/charts", exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
 
     # 中文字體設定
     plt.rcParams["font.sans-serif"] = ["Microsoft JhengHei"]
@@ -29,7 +29,7 @@ def generate_volume_trend_chart(trend):
         linewidth=2
     )
 
-    plt.title("iRent 聲量趨勢")
+    plt.title(f"{brand_name} 聲量趨勢")
     plt.xlabel("日期")
     plt.ylabel("聲量")
     plt.xticks(rotation=45)
@@ -50,15 +50,17 @@ def generate_volume_trend_chart(trend):
     plt.annotate(
         f"高峰：{peak_volume} 筆",
         xy=(peak_date, peak_volume),
-        xytext=(peak_index - 1, peak_volume + 200),
+        xytext=(0, 30),
+        textcoords="offset points",
         arrowprops=dict(arrowstyle="->"),
-        fontsize=10
+        fontsize=10,
+        ha="center"
     )
 
     plt.tight_layout()
 
     plt.savefig(
-        "output/charts/volume_trend.png",
+        f"{out_dir}/volume_trend.png",
         dpi=150,
         bbox_inches="tight"
     )
@@ -66,7 +68,10 @@ def generate_volume_trend_chart(trend):
     plt.close()
 
 
-def generate_sentiment_pie_chart(sentiment):
+def generate_sentiment_pie_chart(sentiment, brand_name="品牌", out_dir="output/charts"):
+    import os
+
+    os.makedirs(out_dir, exist_ok=True)
 
     plt.rcParams["font.sans-serif"] = ["Microsoft JhengHei"]
     plt.rcParams["axes.unicode_minus"] = False
@@ -87,17 +92,17 @@ def generate_sentiment_pie_chart(sentiment):
         autopct="%1.1f%%"
     )
 
-    plt.title("iRent 情緒分布")
+    plt.title(f"{brand_name} 情緒分布")
 
-    plt.savefig("output/charts/sentiment_pie.png")
+    plt.savefig(f"{out_dir}/sentiment_pie.png", dpi=150, bbox_inches="tight")
     plt.close()
 
-def generate_keyword_bar_chart(keywords):
+def generate_keyword_bar_chart(keywords, out_dir="output/charts"):
 
     import os
     import matplotlib.pyplot as plt
 
-    os.makedirs("output/charts", exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
 
     plt.rcParams["font.sans-serif"] = ["Microsoft JhengHei"]
     plt.rcParams["axes.unicode_minus"] = False
@@ -125,21 +130,18 @@ def generate_keyword_bar_chart(keywords):
     plt.tight_layout()
 
     plt.savefig(
-        "output/charts/keyword_bar.png",
+        f"{out_dir}/keyword_bar.png",
         dpi=150,
         bbox_inches="tight"
     )
 
     plt.close()
 
-def generate_keyword_cloud(keywords):
+def generate_keyword_cloud(keywords, out_dir="output/charts"):
 
     import os
 
-    os.makedirs(
-        "output/charts",
-        exist_ok=True
-    )
+    os.makedirs(out_dir, exist_ok=True)
 
     freq = {}
 
@@ -157,6 +159,4 @@ def generate_keyword_cloud(keywords):
 
     wc.generate_from_frequencies(freq)
 
-    wc.to_file(
-        "output/charts/keyword_cloud.png"
-    )
+    wc.to_file(f"{out_dir}/keyword_cloud.png")

@@ -29,7 +29,7 @@ def analyze_report(report_text):
 """
 
     response = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model=os.getenv("CLAUDE_MODEL"),
         max_tokens=1500,
         messages=[
             {
