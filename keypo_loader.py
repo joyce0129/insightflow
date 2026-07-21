@@ -35,14 +35,17 @@ def parse_sentiment(data):
     }
 
 def parse_channel_rank(data):
-    result = []
-
+    totals = {}
     for row in data["data"]:
         channel_index = row[0]
-        volume = row[2]
+        totals[channel_index] = totals.get(channel_index, 0) + row[2]
 
+    ranked = sorted(totals.items(), key=lambda x: x[1], reverse=True)
+
+    result = []
+    for rank, (channel_index, volume) in enumerate(ranked, start=1):
         result.append({
-            "rank": len(result) + 1,
+            "rank": rank,
             "channel": data["channels"][channel_index],
             "source": data["sprdtrnd_src"][channel_index],
             "name": data["sprdtrnd_ch"][channel_index],
@@ -123,15 +126,17 @@ def parse_volume_trend(data):
 
 def parse_kol_channels(data):
 
-    result = []
-
-    for idx, row in enumerate(data["data"]):
-
+    totals = {}
+    for row in data["data"]:
         channel_index = row[0]
-        volume = row[2]
+        totals[channel_index] = totals.get(channel_index, 0) + row[2]
 
+    ranked = sorted(totals.items(), key=lambda x: x[1], reverse=True)
+
+    result = []
+    for rank, (channel_index, volume) in enumerate(ranked, start=1):
         result.append({
-            "rank": idx + 1,
+            "rank": rank,
             "platform": data["sprdtrnd_src"][channel_index],
             "channel": data["sprdtrnd_ch"][channel_index],
             "volume": volume

@@ -1,6 +1,7 @@
 """
 detailed_report_generator.py — 自動產生詳細輿情分析報告（Markdown）
 涵蓋 §1–§11，§7 核心議題以熱門文章自動填入框架，供分析師補充。
+§12 競品聲量分析僅在呼叫時提供 competitor_data 才會輸出（選填章節）。
 """
 import re
 from datetime import datetime
@@ -53,14 +54,41 @@ def _safe_float(s):
         return 0.0
 
 
+def _growth_lines(growth_info):
+    """把 mom/yoy 成長率轉成報告用的條列文字（無資料時回傳空清單）"""
+    if not growth_info:
+        return []
+    lines = []
+    mom = growth_info.get("mom")
+    yoy = growth_info.get("yoy")
+    if mom:
+        word = "成長" if mom["rate"] >= 0 else "下滑"
+        lines.append(
+            f"本期聲量較上期（{mom['prev_total']:,}筆）{word} "
+            f"{abs(mom['rate'])}%。"
+        )
+    if yoy:
+        word = "成長" if yoy["rate"] >= 0 else "下滑"
+        lines.append(
+            f"本期聲量較去年同期（{yoy['prev_total']:,}筆）{word} "
+            f"{abs(yoy['rate'])}%。"
+        )
+    return lines
+
+
 # ══════════════════════════════════════════════════════
 # 主函式
 # ══════════════════════════════════════════════════════
 
+AI_CAPTION_NOTE = "（以上事件摘要由 AI 輔助生成，請核對後使用，比照 §0 原則 5）"
+
+
 def generate_detailed_report(
     brand_name, sentiment, keywords, articles,
-    trend, kols, ai_report, start_date, end_date
+    trend, kols, ai_report, start_date, end_date,
+    growth_info=None, competitor_data=None, table_captions=None
 ):
+    table_captions = table_captions or {}
     today  = datetime.today().strftime("%Y/%m/%d")
     disp_s = _fmt_date(start_date)
     disp_e = _fmt_date(end_date)
@@ -99,6 +127,8 @@ def generate_detailed_report(
 
     h("關鍵結論：")
     h(f"  ▪ 本週總聲量 {trend['total']:,}筆，平均每日 {avg_vol:,}筆。")
+    for line in _growth_lines(growth_info):
+        h(f"  ▪ {line}")
     h(f"  ▪ 聲量高峰：{trend['peak_date']}（{trend['peak_volume']:,}筆）。")
     h(f"  ▪ 情緒結構：正面 {sentiment['positive_percent']}、"
       f"中立 {sentiment['neutral_percent']}、"
@@ -135,12 +165,23 @@ def generate_detailed_report(
         h(f"{item['date']:<14}  {item['volume']:>10,}{mark}")
     h("─" * 55)
     h(f"{'週累積':<14}  {trend['total']:>10,}")
+    if growth_info:
+        mom = growth_info.get("mom")
+        yoy = growth_info.get("yoy")
+        if mom:
+            h(f"{'上期':<14}  {mom['prev_total']:>10,}"
+              f"（本期成長率 {'+' if mom['rate'] >= 0 else ''}{mom['rate']}%）")
+        if yoy:
+            h(f"{'去年同期':<14}  {yoy['prev_total']:>10,}"
+              f"（年增率 {'+' if yoy['rate'] >= 0 else ''}{yoy['rate']}%）")
     br()
 
     h("聲量觀察：")
     h(f"  ▪ 高峰日 {trend['peak_date']} 聲量達 {trend['peak_volume']:,}筆，"
       f"建議對照熱門文章確認事件驅動因素。")
     h(f"  ▪ 週平均每日 {avg_vol:,}筆。")
+    for line in _growth_lines(growth_info):
+        h(f"  ▪ {line}")
 
     last_vol = trend["daily"][-1]["volume"]
     if last_vol < avg_vol * 0.5:
@@ -220,6 +261,11 @@ def generate_detailed_report(
         h(f"{kw['rank']:>4}  {kw['keyword']:<18}  {kw['count']:>10,}")
     br()
 
+    if table_captions.get("keywords"):
+        h(table_captions["keywords"])
+        h(AI_CAPTION_NOTE)
+        br()
+
     # ══ §5 熱門文章 ═══════════════════════════════════
     div()
     h("§5  熱門文章分析（TOP 10）")
@@ -235,6 +281,11 @@ def generate_detailed_report(
           f"{art['engagement']:>6,}  {art['likes']:>8,}  "
           f"{ch:<16}  {title}")
     br()
+
+    if table_captions.get("articles"):
+        h(table_captions["articles"])
+        h(AI_CAPTION_NOTE)
+        br()
 
     h("熱門文章洞察：")
     if articles:
@@ -260,6 +311,11 @@ def generate_detailed_report(
         h(f"{kol['rank']:>4}  {kol['platform']:<12}  "
           f"{kol['channel']:<22}  {kol['volume']:>10,}")
     br()
+
+    if table_captions.get("kol"):
+        h(table_captions["kol"])
+        h(AI_CAPTION_NOTE)
+        br()
 
     h("KOL 傳播分析：")
     if kols:
@@ -377,6 +433,72 @@ def generate_detailed_report(
     br()
     h("報告產出工具：InsightFlow AI 輿情分析系統")
     br()
+
+    # ══ §12 競品聲量分析（僅在有競品資料時輸出）══════════
+    if competitor_data:
+        div()
+        h("§12  競品聲量分析")
+        div()
+        br()
+
+        ranked = sorted(
+            [{
+                "name": brand_name, "total": trend["total"],
+                "pn": sentiment["pn_value"],
+                "pos": sentiment["positive_percent"],
+                "neg": sentiment["negative_percent"],
+            }] + [{
+                "name": c["name"], "total": c["trend"]["total"],
+                "pn": c["sentiment"]["pn_value"],
+                "pos": c["sentiment"]["positive_percent"],
+                "neg": c["sentiment"]["negative_percent"],
+            } for c in competitor_data],
+            key=lambda x: x["total"], reverse=True
+        )
+
+        h(f"{'品牌':<14}  {'總聲量（筆）':>10}  {'P/N值':>8}  {'正面占比':>10}  {'負面占比':>10}")
+        h("─" * 62)
+        for r in ranked:
+            mark = "  ★本品牌" if r["name"] == brand_name else ""
+            h(f"{r['name']:<14}  {r['total']:>10,}  {r['pn']:>8}  "
+              f"{r['pos']:>10}  {r['neg']:>10}{mark}")
+        br()
+
+        competitor_captions = table_captions.get("competitors", {})
+        if competitor_captions:
+            for c in competitor_data:
+                caption = competitor_captions.get(c["name"])
+                if caption:
+                    h(caption)
+            h(AI_CAPTION_NOTE)
+            br()
+
+        h("比較觀察：")
+        top = ranked[0]
+        h(f"  ▪ 本期聲量最高為「{top['name']}」（{top['total']:,}筆）。")
+        if top["name"] != brand_name:
+            main_rank = next(i for i, r in enumerate(ranked, 1) if r["name"] == brand_name)
+            main_total = next(r["total"] for r in ranked if r["name"] == brand_name)
+            if top["total"]:
+                ratio = round(top["total"] / main_total, 2) if main_total else None
+                ratio_text = f"，約為本品牌的 {ratio} 倍" if ratio else ""
+                h(f"  ▪ {brand_name} 本期聲量排名第 {main_rank}{ratio_text}。")
+        else:
+            h(f"  ▪ {brand_name} 本期聲量領先所有列入比較的競品。")
+
+        best_pn = max(ranked, key=lambda x: _safe_float(x["pn"]))
+        h(f"  ▪ 本期 P/N 值最高為「{best_pn['name']}」（{best_pn['pn']}）。")
+        br()
+
+        for c in competitor_data:
+            if not c["articles"]:
+                continue
+            h(f"{c['name']} 熱門文章 TOP3：")
+            for art in c["articles"][:3]:
+                title = _clean(art["title"], max_len=40)
+                h(f"  {art['rank']}. [{art['source']}] {title}"
+                  f"（互動 {art['engagement']:,}）")
+            br()
 
     # ══ Footer ════════════════════════════════════════
     eq()

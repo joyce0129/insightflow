@@ -26,11 +26,7 @@ LOTTERY_EXCLUSION = (
 )
 
 
-def fetch_keypo_data(keyword, start_date, end_date,
-                     exclude_lottery=False, custom_exclusion=""):
-    os.makedirs("data", exist_ok=True)
-
-    # 組合查詢字串
+def _build_query(keyword, exclude_lottery=False, custom_exclusion=""):
     query = keyword
     if exclude_lottery:
         query += f" {LOTTERY_EXCLUSION}"
@@ -38,17 +34,19 @@ def fetch_keypo_data(keyword, start_date, end_date,
     if custom_exclusion:
         query += f" {custom_exclusion}"
         print(f"已套用自訂排除條件")
+    return query
 
-    tasks = {
-        "sentidist": "data/sentidist.json",
-        "hotkw":     "data/hotkw.json",
-        "hotrank":   "data/hotrank.json",
-        "freqdist":  "data/freqdist.json",
-        "sprdtrnd":  "data/sprdtrnd.json",
-    }
 
-    for function_name, output_path in tasks.items():
-        print(f"抓取 KEYPO：{function_name}")
+def fetch_endpoints(keyword, start_date, end_date, output_dir, endpoints,
+                     exclude_lottery=False, custom_exclusion=""):
+    """依指定的 KEYPO 端點清單抓取資料，輸出到 output_dir/{endpoint}.json"""
+    os.makedirs(output_dir, exist_ok=True)
+
+    query = _build_query(keyword, exclude_lottery, custom_exclusion)
+
+    for function_name in endpoints:
+        output_path = f"{output_dir}/{function_name}.json"
+        print(f"抓取 KEYPO：{function_name}（{keyword}）")
 
         command = [
             "py",
@@ -66,4 +64,40 @@ def fetch_keypo_data(keyword, start_date, end_date,
 
         subprocess.run(command, check=True)
 
+
+def fetch_keypo_data(keyword, start_date, end_date,
+                     exclude_lottery=False, custom_exclusion=""):
+    fetch_endpoints(
+        keyword, start_date, end_date, "data",
+        ["sentidist", "hotkw", "hotrank", "freqdist", "sprdtrnd"],
+        exclude_lottery=exclude_lottery,
+        custom_exclusion=custom_exclusion
+    )
     print("KEYPO 資料抓取完成")
+
+
+def fetch_volume_only(keyword, start_date, end_date, output_path,
+                       exclude_lottery=False, custom_exclusion=""):
+    """僅抓取 freqdist（總聲量趨勢），供去年同期比較等輕量查詢使用，
+    避免為了一個總數重複抓取全部 5 個端點。"""
+    out_folder = os.path.dirname(output_path)
+    if out_folder:
+        os.makedirs(out_folder, exist_ok=True)
+
+    query = _build_query(keyword, exclude_lottery, custom_exclusion)
+
+    command = [
+        "py",
+        KEYPO_CLI_PATH,
+        "freqdist",
+        "--q",
+        query,
+        "--min",
+        start_date,
+        "--max",
+        end_date,
+        "--output",
+        output_path
+    ]
+
+    subprocess.run(command, check=True)

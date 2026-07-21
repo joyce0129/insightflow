@@ -1,42 +1,50 @@
 """
-ppt_generator.py — InsightFlow PPT 產生器（乾淨版面）
-10 頁結構：封面 / 執行摘要 / 聲量趨勢 / 情緒分布 /
-           熱門關鍵字 / 關鍵字雲 / 熱門文章 / KOL / AI洞察 / 封底
+ppt_generator.py — InsightFlow PPT 產生器（KEYPO 官方報告風格）
+12 頁結構：封面 / 分節頁 / 執行摘要 / 聲量趨勢(callout圖) /
+           情緒分布(甜甜圈) / 熱門關鍵字 / 關鍵字雲 /
+           熱門文章(TOP3卡片+表格) / KOL(排名徽章) / AI洞察 /
+           結論(3欄卡) / 封底
+           ── 若提供 competitor_data，KOL 頁後會插入「競品聲量分析」章節
+           （分節頁 + 競品聲量比較 + 競品情緒比較 + 競品熱門文章，共 4 頁）
 """
 import os
 import re
 from datetime import datetime
 
 from pptx import Presentation
-from pptx.util import Inches, Pt
+from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.enum.shapes import MSO_SHAPE
 
 
-# ── 色盤 ─────────────────────────────────────────────
-C_NAVY   = RGBColor(0x1A, 0x23, 0x3B)   # 深藍  — 標題底色
-C_TEAL   = RGBColor(0x00, 0x78, 0x8A)   # 青藍  — 強調色、子標
-C_WHITE  = RGBColor(0xFF, 0xFF, 0xFF)   # 白
-C_GRAY   = RGBColor(0x5B, 0x64, 0x70)   # 灰    — 次要文字
-C_LIGHT  = RGBColor(0xF4, 0xF6, 0xF8)   # 淺灰  — 卡片背景
-C_ORANGE = RGBColor(0xF5, 0xA6, 0x23)   # 橘    — INSIGHT 側條
-C_DARK   = RGBColor(0x33, 0x33, 0x33)   # 深灰  — 內文
-C_POS    = RGBColor(0x3B, 0x7D, 0xD8)   # 藍    — 正面
-C_NEG    = RGBColor(0xC0, 0x39, 0x2B)   # 紅    — 負面
-C_NEU    = RGBColor(0x7A, 0x7D, 0x82)   # 灰    — 中立
-C_LINE   = RGBColor(0xD5, 0xD9, 0xDF)   # 淡灰  — 分隔線
-C_HDR    = RGBColor(0x20, 0x2A, 0x44)   # 頁首底色
+# ── 色盤（KEYPO 官方報告風格）───────────────────────────
+C_RED    = RGBColor(0xCC, 0x32, 0x32)   # 紅   — 強調色、對角裝飾、頁碼色塊
+C_SLATE  = RGBColor(0x52, 0x67, 0x83)   # 深藍灰 — KPI 卡、表格標頭
+C_SLATE2 = RGBColor(0x82, 0x95, 0xAF)   # 藍灰 — 表格標頭（次要）、排名徽章
+C_BLUE   = RGBColor(0x43, 0x71, 0xC3)   # 藍   — 結論卡標題列
+C_BLUE_L = RGBColor(0xD1, 0xD6, 0xEC)   # 淺藍 — 結論卡卡身
+C_WHITE  = RGBColor(0xFF, 0xFF, 0xFF)
+C_INK    = RGBColor(0x1A, 0x1A, 0x1A)   # 內文深色字
+C_GRAY   = RGBColor(0x6B, 0x6B, 0x6B)   # 次要文字灰
+C_LIGHT  = RGBColor(0xF4, 0xF6, 0xF8)   # 卡片/表格底色
+C_LINE   = RGBColor(0xD5, 0xD9, 0xDF)   # 分隔線
+
+# 情緒語意色（沿用專案既有色彩慣例，不隨版型更動）
+C_POS    = RGBColor(0x3B, 0x7D, 0xD8)   # 藍 — 正面
+C_NEG    = RGBColor(0xC0, 0x39, 0x2B)   # 紅 — 負面
+C_NEU    = RGBColor(0x7A, 0x7D, 0x82)   # 灰 — 中立
 
 FONT = "Microsoft JhengHei"
 
 # ── 版面常數 ─────────────────────────────────────────
 W      = Inches(13.33)   # 投影片寬
 H      = Inches(7.5)     # 投影片高
-HDR_H  = Inches(0.72)    # 頁首高
-FTR_Y  = Inches(7.1)     # 頁尾 Y
 ML     = Inches(0.5)     # 左邊距
 CW     = Inches(12.33)   # 內容寬 (W - 2*ML)
-CY     = Inches(0.88)    # 內容起始 Y
+CY     = Inches(1.0)     # 內容起始 Y（無滿版頁首後，標題正下方）
+
+CIRCLED_DIGITS = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"]
 
 
 # ══════════════════════════════════════════════════════
@@ -45,7 +53,7 @@ CY     = Inches(0.88)    # 內容起始 Y
 
 def _rect(slide, x, y, w, h, fill=None):
     """加入矩形色塊"""
-    shp = slide.shapes.add_shape(1, x, y, w, h)
+    shp = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, w, h)
     shp.line.fill.background()
     if fill:
         shp.fill.solid()
@@ -55,8 +63,35 @@ def _rect(slide, x, y, w, h, fill=None):
     return shp
 
 
+def _oval(slide, x, y, w, h, fill=None, line=False):
+    """加入橢圓/圓形色塊"""
+    shp = slide.shapes.add_shape(MSO_SHAPE.OVAL, x, y, w, h)
+    if line:
+        shp.line.color.rgb = fill if fill else C_LINE
+        shp.line.width = Pt(1.5)
+        shp.fill.background()
+    else:
+        shp.line.fill.background()
+        if fill:
+            shp.fill.solid()
+            shp.fill.fore_color.rgb = fill
+        else:
+            shp.fill.background()
+    return shp
+
+
+def _diagonal(slide, x, y, size, fill):
+    """加入 45 度旋轉的正方形色塊，用於對角裝飾"""
+    shp = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, size, size)
+    shp.rotation = 45
+    shp.line.fill.background()
+    shp.fill.solid()
+    shp.fill.fore_color.rgb = fill
+    return shp
+
+
 def _tb(slide, x, y, w, h, text,
-        size=13, bold=False, color=C_DARK,
+        size=13, bold=False, color=C_INK,
         align=PP_ALIGN.LEFT, wrap=True):
     """加入單段文字框"""
     box = slide.shapes.add_textbox(x, y, w, h)
@@ -74,7 +109,7 @@ def _tb(slide, x, y, w, h, text,
 
 
 def _bullet_box(slide, x, y, w, h, items,
-                size=13, spacing=6, color=C_DARK):
+                size=13, spacing=6, color=C_INK):
     """加入項目符號清單"""
     box = slide.shapes.add_textbox(x, y, w, h)
     tf = box.text_frame
@@ -92,8 +127,28 @@ def _bullet_box(slide, x, y, w, h, items,
         r.font.color.rgb = color
 
 
+def _numbered_insight(slide, x, y, w, h, items, size=13, spacing=8, color=C_INK):
+    """圈碼列點洞察（①②③…，無底色框，直接鋪在標題下方，仿範本樣式）"""
+    box = slide.shapes.add_textbox(x, y, w, h)
+    tf = box.text_frame
+    tf.word_wrap = True
+    first = True
+    for i, item in enumerate(items):
+        p = tf.paragraphs[0] if first else tf.add_paragraph()
+        if not first:
+            p.space_before = Pt(spacing)
+        first = False
+        digit = CIRCLED_DIGITS[i] if i < len(CIRCLED_DIGITS) else f"{i + 1}."
+        r = p.add_run()
+        r.text = f"{digit} {item}"
+        r.font.name = FONT
+        r.font.size = Pt(size)
+        r.font.color.rgb = color
+    return box
+
+
 def _cell(cell, text, size=11, bold=False,
-          color=C_DARK, bg=None, align=PP_ALIGN.LEFT):
+          color=C_INK, bg=None, align=PP_ALIGN.LEFT):
     """設定表格儲存格"""
     if bg:
         cell.fill.solid()
@@ -152,57 +207,104 @@ def format_date(s):
 # ══════════════════════════════════════════════════════
 
 def _header(slide, title, page_num, brand, period):
-    """深色頁首 + 青色側條 + 頁尾"""
-    # 頁首底色
-    _rect(slide, 0, 0, W, HDR_H, fill=C_HDR)
-    # 左側青色條
-    _rect(slide, 0, 0, Inches(0.07), HDR_H, fill=C_TEAL)
-    # 標題
-    _tb(slide, ML + Inches(0.1), Inches(0.14),
-        Inches(11.0), Inches(0.5),
-        title, size=19, bold=True, color=C_WHITE, wrap=False)
-    # 頁碼
-    _tb(slide, Inches(12.5), Inches(0.2),
-        Inches(0.7), Inches(0.38),
-        f"{page_num:02d}",
-        size=11, color=RGBColor(0x88, 0x99, 0xAA),
-        align=PP_ALIGN.RIGHT, wrap=False)
-    # 頁尾分隔線
-    _rect(slide, 0, FTR_Y, W, Inches(0.02), fill=C_LINE)
-    # 頁尾文字
-    _tb(slide, ML, Inches(7.13), CW, Inches(0.28),
-        f"{brand} 網路輿情分析報告  ／  {period}"
-        f"  ／  資料來源：KEYPO 大數據關鍵引擎",
+    """白底頁首：左側紅色色塊 + 標題 + 右下角紅色頁碼色塊 + 頁尾"""
+    _rect(slide, 0, 0, Inches(0.14), Inches(1.0), fill=C_RED)
+    _tb(slide, ML + Inches(0.15), Inches(0.2),
+        Inches(11.0), Inches(0.6),
+        title, size=26, bold=True, color=C_INK, wrap=False)
+
+    _rect(slide, W - Inches(0.9), H - Inches(0.42), Inches(0.9), Inches(0.42), fill=C_RED)
+    _tb(slide, W - Inches(0.9), H - Inches(0.4),
+        Inches(0.9), Inches(0.36),
+        str(page_num), size=12, bold=True, color=C_WHITE,
+        align=PP_ALIGN.CENTER, wrap=False)
+
+    _tb(slide, ML, H - Inches(0.4), CW - Inches(1.2), Inches(0.32),
+        f"{brand} 網路輿情分析報告  ／  {period}  ／  資料來源：KEYPO 大數據關鍵引擎",
         size=9, color=C_GRAY)
 
 
-def _data_card(slide, x, y, w, h, value, label, accent=C_TEAL):
-    """資料卡片（大數字 + 標籤）"""
-    _rect(slide, x, y, w, h, fill=C_LIGHT)
-    _rect(slide, x, y, Inches(0.07), h, fill=accent)
-    _tb(slide, x + Inches(0.18), y + Inches(0.1),
-        w - Inches(0.25), Inches(0.7),
-        value, size=24, bold=True, color=C_NAVY, wrap=False)
-    _tb(slide, x + Inches(0.18), y + h - Inches(0.36),
-        w - Inches(0.25), Inches(0.3),
-        label, size=10, color=C_GRAY)
+def _data_card(slide, x, y, w, h, value, label, accent=C_SLATE, value_size=24):
+    """KPI 卡片（純色塊：標籤 + 大數字，白字置中）"""
+    _rect(slide, x, y, w, h, fill=accent)
+    _tb(slide, x + Inches(0.08), y + Inches(0.1),
+        w - Inches(0.16), Inches(0.3),
+        label, size=10, bold=True, color=C_WHITE,
+        align=PP_ALIGN.CENTER, wrap=False)
+    _tb(slide, x + Inches(0.08), y + Inches(0.42),
+        w - Inches(0.16), h - Inches(0.5),
+        value, size=value_size, bold=True, color=C_WHITE,
+        align=PP_ALIGN.CENTER, wrap=False)
 
 
-def _insight(slide, x, y, w, h, items):
-    """INSIGHT 橘色側條灰底框"""
-    _rect(slide, x, y, w, h, fill=C_LIGHT)
-    _rect(slide, x, y, Inches(0.07), h, fill=C_ORANGE)
-    _tb(slide, x + Inches(0.18), y + Inches(0.07),
-        Inches(1.5), Inches(0.26),
-        "INSIGHT", size=10, bold=True, color=C_TEAL)
-    _bullet_box(slide,
-                x + Inches(0.18), y + Inches(0.37),
-                w - Inches(0.28), h - Inches(0.47),
-                [f"● {i}" for i in items],
-                size=12, spacing=5)
+def _kpi_row(slide, x, y, w, h, items, value_size=19):
+    """一列等寬 KPI 卡（items: [(value, label, accent), ...]）"""
+    n = len(items)
+    gap = Inches(0.15)
+    card_w = Emu(int((w - gap * (n - 1)) / n))
+    for i, (value, label, accent) in enumerate(items):
+        _data_card(
+            slide,
+            x + i * (card_w + gap), y,
+            card_w, h, value, label,
+            accent=accent, value_size=value_size
+        )
 
 
-def _section_label(slide, x, y, text, color=C_NAVY):
+RANK_COLORS = [C_RED, C_SLATE, C_SLATE2, C_NEU]
+
+
+def _badge(slide, cx, cy, d, number, fill=C_SLATE, text_color=C_WHITE, size=13):
+    """圓形排名徽章（置中數字）"""
+    x, y = cx - d // 2, cy - d // 2
+    _oval(slide, x, y, d, d, fill=fill)
+    box = slide.shapes.add_textbox(x, y, d, d)
+    tf = box.text_frame
+    tf.word_wrap = False
+    tf.margin_left = 0
+    tf.margin_right = 0
+    tf.margin_top = 0
+    tf.margin_bottom = 0
+    p = tf.paragraphs[0]
+    p.alignment = PP_ALIGN.CENTER
+    r = p.add_run()
+    r.text = str(number)
+    r.font.name = FONT
+    r.font.size = Pt(size)
+    r.font.bold = True
+    r.font.color.rgb = text_color
+    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    return box
+
+
+def _rank_badge(slide, cx, cy, d, rank, size=13):
+    """依名次取色的排名徽章（前三名用強調色，其餘中性灰）"""
+    color = RANK_COLORS[rank - 1] if rank <= 3 else RANK_COLORS[3]
+    _badge(slide, cx, cy, d, rank, fill=color, size=size)
+
+
+def _section_divider(prs, title, subtitle, page_num):
+    """大字報式分節頁（白底 + 對角裝飾 + CHAPTER 字樣）"""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+
+    _diagonal(slide, W - Inches(3.6), -Inches(3.3), Inches(5.4), C_LIGHT)
+    _diagonal(slide, -Inches(2.2), H - Inches(2.0), Inches(3.4), C_RED)
+
+    _tb(slide, Inches(0.9), Inches(1.35), Inches(6.0), Inches(0.45),
+        f"CHAPTER {page_num}", size=15, bold=True, color=C_SLATE2, wrap=False)
+    _tb(slide, Inches(0.9), Inches(2.7), Inches(10.5), Inches(1.1),
+        title, size=40, bold=True, color=C_INK)
+    _rect(slide, Inches(0.9), Inches(3.55), Inches(0.9), Inches(0.06), fill=C_RED)
+    _tb(slide, Inches(0.9), Inches(3.72), Inches(10.5), Inches(0.5),
+        subtitle, size=14, color=C_GRAY)
+
+    _badge(slide, W - Inches(0.75), H - Inches(0.75), Inches(0.6),
+           f"{page_num:02d}", fill=C_RED, size=13)
+
+    return slide
+
+
+def _section_label(slide, x, y, text, color=C_INK):
     """小節標籤（▎ 字首）"""
     _tb(slide, x, y, Inches(6.0), Inches(0.32),
         f"▎ {text}", size=12, bold=True, color=color)
@@ -213,38 +315,38 @@ def _section_label(slide, x, y, text, color=C_NAVY):
 # ══════════════════════════════════════════════════════
 
 def _slide_cover(prs, brand, period):
-    """封面"""
+    """封面：白底 + 紅色對角裝飾"""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
 
-    # 左側色條組合
-    _rect(slide, 0, 0, Inches(0.45), H, fill=C_TEAL)
-    _rect(slide, Inches(0.45), 0, Inches(0.07), H, fill=C_LIGHT)
+    _diagonal(slide, W - Inches(4.2), -Inches(3.8), Inches(6.0), C_LIGHT)
+    _diagonal(slide, -Inches(2.6), -Inches(2.6), Inches(4.0), C_RED)
+    _diagonal(slide, W - Inches(1.6), H - Inches(1.6), Inches(3.0), C_RED)
 
-    # 品牌名稱
-    _tb(slide, Inches(0.85), Inches(2.0), Inches(11.5), Inches(1.15),
-        brand, size=42, bold=True, color=C_NAVY)
+    _rect(slide, Inches(0.85), Inches(1.55), Inches(2.6), Inches(0.38), fill=C_INK)
+    _tb(slide, Inches(0.85), Inches(1.61), Inches(2.6), Inches(0.3),
+        "SOCIAL LISTENING REPORT", size=11, bold=True,
+        color=C_WHITE, align=PP_ALIGN.CENTER, wrap=False)
 
-    # 副標
-    _tb(slide, Inches(0.85), Inches(3.25), Inches(10.0), Inches(0.65),
-        "網路輿情分析報告", size=22, color=C_TEAL)
+    _tb(slide, Inches(0.85), Inches(2.15), Inches(11.5), Inches(1.15),
+        brand, size=42, bold=True, color=C_INK)
 
-    # 分隔線
-    _rect(slide, Inches(0.85), Inches(4.05), Inches(9.5), Inches(0.03),
-          fill=C_LINE)
+    _tb(slide, Inches(0.85), Inches(3.4), Inches(10.0), Inches(0.65),
+        "網路輿情分析報告", size=22, color=C_RED)
 
-    # 期間
-    _tb(slide, Inches(0.85), Inches(4.2), Inches(10.0), Inches(0.45),
+    _rect(slide, Inches(0.85), Inches(4.2), Inches(9.5), Inches(0.03), fill=C_LINE)
+
+    _tb(slide, Inches(0.85), Inches(4.35), Inches(10.0), Inches(0.45),
         f"分析期間：{period}", size=14, color=C_GRAY)
 
-    # 資料來源
-    _tb(slide, Inches(0.85), Inches(4.75), Inches(10.0), Inches(0.38),
+    _tb(slide, Inches(0.85), Inches(4.9), Inches(10.0), Inches(0.38),
         "資料來源｜KEYPO 大數據關鍵引擎", size=12, color=C_GRAY)
 
 
-def _slide_summary(prs, brand, period, trend, sentiment, keywords):
-    """執行摘要：資料卡片 + 重點列表"""
+def _slide_summary(prs, brand, period, trend, sentiment, keywords,
+                    growth_info=None, page_num=2):
+    """執行摘要：KPI 卡片 + 上期比較 + 重點列表"""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _header(slide, "執行摘要", 1, brand, period)
+    _header(slide, "執行摘要", page_num, brand, period)
 
     # ── 資料卡片 (4 個) ──────────────────────────────
     card_w = Inches(2.88)
@@ -253,8 +355,8 @@ def _slide_summary(prs, brand, period, trend, sentiment, keywords):
     cy     = Inches(1.02)
 
     cards = [
-        (f"{trend['total']:,}筆",          "本週總聲量",  C_TEAL),
-        (str(sentiment["pn_value"]),        "P/N 值",     C_POS),
+        (f"{trend['total']:,}筆",          "本期總聲量",  C_SLATE),
+        (str(sentiment["pn_value"]),        "P/N 值",     C_BLUE),
         (sentiment["positive_percent"],     "正面聲量",    C_POS),
         (sentiment["negative_percent"],     "負面聲量",    C_NEG),
     ]
@@ -263,72 +365,128 @@ def _slide_summary(prs, brand, period, trend, sentiment, keywords):
                    ML + i * (card_w + gap), cy,
                    card_w, card_h, val, lbl, accent=acc)
 
-    # ── 分隔 ─────────────────────────────────────────
-    _tb(slide, ML, Inches(2.44), Inches(4.0), Inches(0.3),
-        "▎ 本週重點摘要", size=12, bold=True, color=C_NAVY)
-    _rect(slide, ML, Inches(2.78), CW, Inches(0.02), fill=C_LINE)
+    # ── 上期比較／去年同期比較（簡化版，僅在有快照時顯示）──
+    comparison_lines = []
+    if growth_info:
+        mom = growth_info.get("mom")
+        yoy = growth_info.get("yoy")
+        if mom:
+            sign = "+" if mom["rate"] >= 0 else ""
+            comparison_lines.append(
+                f"上期：{mom['prev_total']:,}筆｜本期聲量成長率 {sign}{mom['rate']}%"
+            )
+        if yoy:
+            sign = "+" if yoy["rate"] >= 0 else ""
+            comparison_lines.append(
+                f"去年同期：{yoy['prev_total']:,}筆｜年增率 {sign}{yoy['rate']}%"
+            )
+    for i, line in enumerate(comparison_lines):
+        _tb(slide, ML, cy + card_h + Inches(0.04) + i * Inches(0.2),
+            card_w, Inches(0.2), line, size=9.5, color=C_GRAY, wrap=True)
 
-    # ── 重點列表 ─────────────────────────────────────
+    # ── 分隔 ─────────────────────────────────────────
+    _tb(slide, ML, Inches(2.86), Inches(4.0), Inches(0.3),
+        "▎ 本期重點摘要", size=12, bold=True, color=C_INK)
+    _rect(slide, ML, Inches(3.2), CW, Inches(0.02), fill=C_LINE)
+
+    # ── 重點列表（圈碼）──────────────────────────────
     peak = trend["peak_date"]
     neg  = sentiment["negative"]
     kw0, kw1, kw2 = keywords[0], keywords[1], keywords[2]
 
     bullets = [
-        f"▪  聲量高峰 {peak}（{trend['peak_volume']:,}筆），"
-        f"本週累積 {trend['total']:,}筆，平均每日"
+        f"聲量高峰 {peak}（{trend['peak_volume']:,}筆），"
+        f"本期累積 {trend['total']:,}筆，平均每日"
         f" {trend['total'] // len(trend['daily']):,}筆。",
 
-        f"▪  情緒結構：正面 {sentiment['positive_percent']}、"
+        f"情緒結構：正面 {sentiment['positive_percent']}、"
         f"中立 {sentiment['neutral_percent']}、"
         f"負面 {sentiment['negative_percent']}；"
         f"P/N 值 {sentiment['pn_value']}。",
 
-        f"▪  熱門關鍵字 TOP3：{kw0['keyword']}（{kw0['count']}）、"
+        f"熱門關鍵字 TOP3：{kw0['keyword']}（{kw0['count']}）、"
         f"{kw1['keyword']}（{kw1['count']}）、"
         f"{kw2['keyword']}（{kw2['count']}）。",
 
-        f"▪  負面聲量 {neg:,}筆（{sentiment['negative_percent']}），"
+        f"負面聲量 {neg:,}筆（{sentiment['negative_percent']}），"
         + ("超過 100 筆，建議持續監控社群討論。"
            if neg > 100 else "維持低水位。"),
     ]
 
-    _bullet_box(slide, ML, Inches(2.9), CW, Inches(4.0),
-                bullets, size=14, spacing=14)
+    _numbered_insight(slide, ML, Inches(3.36), CW, Inches(3.55),
+                       bullets, size=14, spacing=14)
 
 
-def _slide_trend(prs, brand, period, trend, charts_dir):
-    """聲量趨勢圖"""
+def _slide_trend(prs, brand, period, trend, articles, charts_dir,
+                  growth_info=None, page_num=3):
+    """聲量趨勢圖：圈碼洞察 + KPI 列 + 折線圖（含事件 callout）"""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _header(slide, "聲量趨勢分析", 2, brand, period)
+    _header(slide, "聲量趨勢分析", page_num, brand, period)
+
+    days = len(trend["daily"])
+    total_engagement = sum(a.get("engagement", 0) for a in articles)
+
+    insight_items = [
+        f"本期{brand}總聲量共{trend['total']:,}筆，聲量高峰出現在"
+        f"{trend['peak_date']}（{trend['peak_volume']:,}筆）。",
+        f"日均聲量約{trend['total'] // days:,}筆" if days else "日均聲量無法計算",
+    ]
+    if growth_info:
+        comparison_parts = []
+        mom = growth_info.get("mom")
+        yoy = growth_info.get("yoy")
+        if mom:
+            word = "成長" if mom["rate"] >= 0 else "下滑"
+            comparison_parts.append(
+                f"較上期（{mom['prev_total']:,}筆）{word} {abs(mom['rate'])}%"
+            )
+        if yoy:
+            word = "成長" if yoy["rate"] >= 0 else "下滑"
+            comparison_parts.append(
+                f"較去年同期（{yoy['prev_total']:,}筆）{word} {abs(yoy['rate'])}%"
+            )
+        if comparison_parts:
+            insight_items.append("本期聲量" + "；".join(comparison_parts) + "。")
+    _numbered_insight(slide, ML, Inches(0.95), CW, Inches(1.05), insight_items, size=12)
+
+    _kpi_row(slide, ML, Inches(2.05), CW, Inches(0.85), [
+        (f"{trend['total']:,}", "總聲量（筆）", C_SLATE),
+        (f"{trend['peak_volume']:,}", "聲量高峰（筆）", C_RED),
+        (f"{trend['total'] // days:,}" if days else "0", "日均聲量（筆）", C_SLATE2),
+        (f"{len(articles):,}", "熱門文章數", C_SLATE),
+        (f"{total_engagement:,}", "累計互動數", C_SLATE2),
+    ], value_size=18)
 
     slide.shapes.add_picture(
         f"{charts_dir}/volume_trend.png",
-        ML, CY, width=CW, height=Inches(4.6))
-
-    peak = trend["peak_date"]
-    _insight(slide, ML, Inches(5.68), CW, Inches(1.27), [
-        f"本週聲量高峰出現於 {peak}（{trend['peak_volume']:,}筆），"
-        f"建議對照熱門文章確認事件驅動因素。",
-        f"週累積 {trend['total']:,}筆，"
-        f"平均每日 {trend['total'] // len(trend['daily']):,}筆。",
-    ])
+        ML, Inches(3.05), width=CW, height=Inches(3.9))
 
 
-def _slide_sentiment(prs, brand, period, sentiment, charts_dir):
-    """情緒分布：圓餅圖 + 數據卡"""
+def _slide_sentiment(prs, brand, period, sentiment, charts_dir, page_num=4):
+    """情緒分布：圈碼洞察 + 甜甜圈圖（中心 P/N 值）+ 數據列"""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _header(slide, "情緒分布分析", 3, brand, period)
+    _header(slide, "情緒分布分析", page_num, brand, period)
 
-    # 圓餅圖（左）
+    dominant = max(
+        [("正面", sentiment["positive"]), ("中立", sentiment["neutral"]),
+         ("負面", sentiment["negative"])],
+        key=lambda x: x[1]
+    )[0]
+    _numbered_insight(slide, ML, Inches(0.95), CW, Inches(0.6), [
+        f"本期輿情以{dominant}聲量為主，P/N 值為 {sentiment['pn_value']}。"
+    ], size=12)
+
+    # 甜甜圈圖（左，中心已內嵌 P/N 值）
     slide.shapes.add_picture(
         f"{charts_dir}/sentiment_pie.png",
-        ML, CY, width=Inches(6.5), height=Inches(5.2))
+        ML, Inches(1.65), width=Inches(6.3), height=Inches(5.1))
 
     # 數據區（右）
-    rx = Inches(7.3)
-    _tb(slide, rx, Inches(1.05), Inches(5.5), Inches(0.32),
-        "情緒結構詳細數據", size=13, bold=True, color=C_NAVY)
-    _rect(slide, rx, Inches(1.42), Inches(5.5), Inches(0.03), fill=C_LINE)
+    rx = Inches(7.1)
+
+    _data_card(slide, rx, Inches(1.65), Inches(5.7), Inches(0.9),
+               str(sentiment["pn_value"]), "P/N 值（正面聲量 ÷ 負面聲量）",
+               accent=C_SLATE, value_size=30)
 
     rows = [
         ("正面", sentiment["positive"], sentiment["positive_percent"], C_POS),
@@ -336,92 +494,145 @@ def _slide_sentiment(prs, brand, period, sentiment, charts_dir):
         ("負面", sentiment["negative"], sentiment["negative_percent"], C_NEG),
     ]
     for i, (label, vol, pct, color) in enumerate(rows):
-        sy = Inches(1.58) + i * Inches(1.45)
-        _rect(slide, rx, sy + Inches(0.16), Inches(0.22), Inches(0.22), fill=color)
+        sy = Inches(2.75) + i * Inches(1.25)
+        _rect(slide, rx, sy + Inches(0.14), Inches(0.22), Inches(0.22), fill=color)
         _tb(slide, rx + Inches(0.38), sy,
-            Inches(1.8), Inches(0.35), label, size=13, bold=True, color=C_DARK)
-        _tb(slide, rx + Inches(0.38), sy + Inches(0.38),
-            Inches(5.0), Inches(0.5),
-            f"{vol:,} 筆", size=22, bold=True, color=color, wrap=False)
-        _tb(slide, rx + Inches(0.38), sy + Inches(0.92),
-            Inches(5.0), Inches(0.32), pct, size=13, color=C_GRAY)
-
-    # P/N 值
-    _rect(slide, rx, Inches(5.98), Inches(5.5), Inches(0.03), fill=C_LINE)
-    _tb(slide, rx, Inches(6.07), Inches(5.5), Inches(0.38),
-        f"P/N 值：{sentiment['pn_value']}",
-        size=15, bold=True, color=C_TEAL)
+            Inches(1.8), Inches(0.32), label, size=13, bold=True, color=C_INK)
+        _tb(slide, rx + Inches(0.38), sy + Inches(0.35),
+            Inches(5.0), Inches(0.46),
+            f"{vol:,} 筆", size=20, bold=True, color=color, wrap=False)
+        _tb(slide, rx + Inches(0.38), sy + Inches(0.84),
+            Inches(5.0), Inches(0.3), pct, size=12, color=C_GRAY)
 
 
-def _slide_keywords(prs, brand, period, charts_dir):
+def _slide_keywords(prs, brand, period, keywords, charts_dir, page_num=5, caption=None):
     """熱門關鍵字橫條圖"""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _header(slide, "熱門關鍵字 TOP10", 4, brand, period)
+    _header(slide, "熱門關鍵字 TOP10", page_num, brand, period)
+
+    insight_items = []
+    if keywords:
+        top = keywords[0]
+        insight_items.append(
+            f"本期最熱關鍵字為「{top['keyword']}」，累計聲量 {top['count']:,} 筆，"
+            f"建議對照熱門文章確認討論脈絡。"
+        )
+    if caption:
+        insight_items.append(_clean(caption, 130))
+    _numbered_insight(slide, ML, Inches(0.95), CW, Inches(1.3), insight_items, size=12)
 
     slide.shapes.add_picture(
         f"{charts_dir}/keyword_bar.png",
-        ML, CY, width=CW, height=Inches(6.08))
+        ML, Inches(2.4), width=CW, height=Inches(4.5))
 
 
-def _slide_wordcloud(prs, brand, period, charts_dir):
+def _slide_wordcloud(prs, brand, period, charts_dir, page_num=6):
     """關鍵字雲"""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _header(slide, "關鍵字雲", 5, brand, period)
+    _header(slide, "關鍵字雲", page_num, brand, period)
 
     slide.shapes.add_picture(
         f"{charts_dir}/keyword_cloud.png",
-        ML, CY, width=CW, height=Inches(5.7))
+        ML, CY, width=CW, height=Inches(5.9))
 
 
-def _slide_articles(prs, brand, period, articles):
-    """熱門文章 TOP5 表格"""
+def _slide_articles(prs, brand, period, articles, page_num=7, caption=None):
+    """熱門文章分析：圈碼洞察 + TOP3 話題卡片 + TOP4-10 精簡表格"""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _header(slide, "熱門文章 TOP5", 6, brand, period)
+    _header(slide, "熱門文章分析", page_num, brand, period)
 
-    n = min(len(articles), 5)
-    tbl = slide.shapes.add_table(
-        n + 1, 5,
-        ML, CY,
-        CW, Inches(5.97)
-    ).table
+    top3 = articles[:3]
+    rest = articles[3:10]
 
-    # 欄寬（合計 = CW = 12.33"）
-    for i, cw in enumerate(
-        [Inches(0.55), Inches(1.3), Inches(1.9), Inches(6.8), Inches(1.78)]
-    ):
-        tbl.columns[i].width = cw
+    insight_items = []
+    if top3:
+        insight_items.append(
+            f"本期互動數最高文章來自 [{top3[0]['source']}] "
+            f"{_clean(top3[0]['channel'], 14)}（互動 {top3[0]['engagement']:,}）。"
+        )
+    if caption:
+        insight_items.append(_clean(caption, 130))
+    if insight_items:
+        _numbered_insight(slide, ML, Inches(0.95), CW, Inches(1.2), insight_items, size=12)
 
-    # 表頭
-    for j, hdr in enumerate(["排名", "平台", "頻道", "標題", "互動（cc）"]):
-        _cell(tbl.cell(0, j), hdr,
-              size=11, bold=True, color=C_WHITE,
-              bg=C_NAVY, align=PP_ALIGN.CENTER)
+    top_y = Inches(2.25)
 
-    # 資料列
-    for i, art in enumerate(articles[:n], start=1):
-        bg = C_LIGHT if i % 2 == 0 else C_WHITE
-        _cell(tbl.cell(i, 0), str(art["rank"]),
-              bg=bg, align=PP_ALIGN.CENTER)
-        _cell(tbl.cell(i, 1), art["source"],
-              bg=bg, align=PP_ALIGN.CENTER)
-        _cell(tbl.cell(i, 2), _clean(art["channel"], 14),
-              bg=bg)
-        _cell(tbl.cell(i, 3), _clean(art["title"], 44),
-              bg=bg)
-        _cell(tbl.cell(i, 4), f"{art['engagement']:,}",
-              bg=bg, align=PP_ALIGN.CENTER)
+    # ── TOP3 話題卡片 ────────────────────────────────
+    gap = Inches(0.2)
+    card_w = Emu(int((CW - gap * 2) / 3))
+    card_h = Inches(1.95)
+
+    for i, art in enumerate(top3):
+        cx = ML + i * (card_w + gap)
+        _rect(slide, cx, top_y, card_w, card_h, fill=C_LIGHT)
+        _rect(slide, cx, top_y, card_w, Inches(0.06), fill=RANK_COLORS[i])
+        _rank_badge(slide, cx + Inches(0.4), top_y + Inches(0.42),
+                    Inches(0.5), i + 1, size=15)
+        _tb(slide, cx + Inches(0.75), top_y + Inches(0.2),
+            card_w - Inches(0.9), Inches(0.5),
+            f"{art['source']} ・ {_clean(art['channel'], 10)}",
+            size=10, bold=True, color=C_SLATE, wrap=True)
+        _tb(slide, cx + Inches(0.18), top_y + Inches(0.8),
+            card_w - Inches(0.36), Inches(0.75),
+            _clean(art["title"], 46), size=12, color=C_INK)
+        _tb(slide, cx + Inches(0.18), top_y + card_h - Inches(0.36),
+            card_w - Inches(0.36), Inches(0.32),
+            f"互動 {art['engagement']:,}　讚 {art['likes']:,}　分享 {art['replies']:,}",
+            size=9.5, color=C_GRAY, wrap=False)
+
+    # ── TOP4–10 精簡表格 ─────────────────────────────
+    if rest:
+        table_y = top_y + card_h + Inches(0.18)
+        n = len(rest)
+        tbl = slide.shapes.add_table(
+            n + 1, 5, ML, table_y, CW, Inches(2.55)
+        ).table
+
+        for i, cw in enumerate(
+            [Inches(0.55), Inches(1.3), Inches(1.9), Inches(6.8), Inches(1.78)]
+        ):
+            tbl.columns[i].width = cw
+
+        for j, hdr in enumerate(["排名", "平台", "頻道", "標題", "互動（cc）"]):
+            _cell(tbl.cell(0, j), hdr,
+                  size=11, bold=True, color=C_WHITE,
+                  bg=C_SLATE2, align=PP_ALIGN.CENTER)
+
+        for i, art in enumerate(rest, start=1):
+            bg = C_LIGHT if i % 2 == 0 else C_WHITE
+            _cell(tbl.cell(i, 0), str(art["rank"]),
+                  bg=bg, align=PP_ALIGN.CENTER)
+            _cell(tbl.cell(i, 1), art["source"],
+                  bg=bg, align=PP_ALIGN.CENTER)
+            _cell(tbl.cell(i, 2), _clean(art["channel"], 14),
+                  bg=bg)
+            _cell(tbl.cell(i, 3), _clean(art["title"], 44),
+                  bg=bg)
+            _cell(tbl.cell(i, 4), f"{art['engagement']:,}",
+                  bg=bg, align=PP_ALIGN.CENTER)
 
 
-def _slide_kol(prs, brand, period, kols):
-    """網路關鍵領袖 TOP10 表格"""
+def _slide_kol(prs, brand, period, kols, page_num=8, caption=None):
+    """網路關鍵領袖 TOP10 表格（排名欄以徽章色塊標示前三名）"""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _header(slide, "網路關鍵領袖 TOP10", 7, brand, period)
+    _header(slide, "網路關鍵領袖 TOP10", page_num, brand, period)
+
+    insight_items = []
+    if kols:
+        insight_items.append(
+            f"本期最具影響力 KOL 為 [{kols[0]['platform']}] "
+            f"{_clean(kols[0]['channel'], 18)}（{kols[0]['volume']:,}筆）。"
+        )
+    if caption:
+        insight_items.append(_clean(caption, 130))
+    if insight_items:
+        _numbered_insight(slide, ML, Inches(0.95), CW, Inches(1.2), insight_items, size=12)
 
     n = min(len(kols), 10)
     tbl = slide.shapes.add_table(
         n + 1, 4,
-        ML, CY,
-        CW, Inches(5.97)
+        ML, Inches(2.25),
+        CW, Inches(4.65)
     ).table
 
     # 欄寬（合計 = 12.33"）
@@ -433,12 +644,15 @@ def _slide_kol(prs, brand, period, kols):
     for j, hdr in enumerate(["排名", "平台", "頻道名稱", "聲量（筆）"]):
         _cell(tbl.cell(0, j), hdr,
               size=11, bold=True, color=C_WHITE,
-              bg=C_NAVY, align=PP_ALIGN.CENTER)
+              bg=C_SLATE2, align=PP_ALIGN.CENTER)
 
     for i, kol in enumerate(kols[:n], start=1):
         bg = C_LIGHT if i % 2 == 0 else C_WHITE
+        rank_bg = RANK_COLORS[i - 1] if i <= 3 else bg
+        rank_color = C_WHITE if i <= 3 else C_INK
         _cell(tbl.cell(i, 0), str(kol["rank"]),
-              bg=bg, align=PP_ALIGN.CENTER)
+              bg=rank_bg, bold=(i <= 3), color=rank_color,
+              align=PP_ALIGN.CENTER)
         _cell(tbl.cell(i, 1), kol["platform"],
               bg=bg, align=PP_ALIGN.CENTER)
         _cell(tbl.cell(i, 2), kol["channel"], bg=bg)
@@ -446,10 +660,112 @@ def _slide_kol(prs, brand, period, kols):
               bg=bg, align=PP_ALIGN.CENTER)
 
 
-def _slide_ai(prs, brand, period, ai_report):
+def _slide_competitor_volume(prs, brand, period, trend, competitor_data, charts_dir,
+                              page_num, captions=None):
+    """競品聲量比較：圈碼洞察 + 折線疊圖 + 各品牌事件摘要 + 排名小表格"""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _header(slide, "競品聲量分析", page_num, brand, period)
+
+    ranked = sorted(
+        [{"name": brand, "total": trend["total"]}]
+        + [{"name": c["name"], "total": c["trend"]["total"]} for c in competitor_data],
+        key=lambda x: x["total"], reverse=True
+    )
+    top = ranked[0]
+    insight = f"本期聲量最高為「{top['name']}」（{top['total']:,}筆）。"
+    if ranked[0]["name"] != brand:
+        main_rank = next(i for i, r in enumerate(ranked, 1) if r["name"] == brand)
+        insight += f"{brand} 本期排名第 {main_rank}。"
+    _numbered_insight(slide, ML, Inches(0.95), CW, Inches(0.5), [insight], size=12)
+
+    slide.shapes.add_picture(
+        f"{charts_dir}/competitor_volume.png",
+        ML, Inches(1.55), width=CW, height=Inches(2.2))
+
+    if captions:
+        caption_lines = []
+        for c in competitor_data:
+            text = captions.get(c["name"])
+            if text:
+                caption_lines.append(f"● {_clean(text, 110)}")
+        if caption_lines:
+            _bullet_box(slide, ML, Inches(3.85), CW, Inches(1.3),
+                        caption_lines, size=9.5, spacing=3, color=C_GRAY)
+
+    table_y = Inches(5.25)
+    n = len(ranked)
+    tbl = slide.shapes.add_table(n + 1, 3, ML, table_y, CW, Inches(1.65)).table
+    for i, cw in enumerate([Inches(1.5), Inches(7.5), Inches(3.33)]):
+        tbl.columns[i].width = cw
+    for j, hdr in enumerate(["排名", "品牌", "總聲量（筆）"]):
+        _cell(tbl.cell(0, j), hdr, size=11, bold=True, color=C_WHITE,
+              bg=C_SLATE2, align=PP_ALIGN.CENTER)
+    for i, r in enumerate(ranked, start=1):
+        bg = C_LIGHT if r["name"] == brand else (C_LIGHT if i % 2 == 0 else C_WHITE)
+        _cell(tbl.cell(i, 0), str(i), bg=bg, align=PP_ALIGN.CENTER)
+        _cell(tbl.cell(i, 1), r["name"], bg=bg, bold=(r["name"] == brand))
+        _cell(tbl.cell(i, 2), f"{r['total']:,}", bg=bg, align=PP_ALIGN.CENTER)
+
+
+def _slide_competitor_sentiment(prs, brand, period, sentiment, competitor_data, charts_dir, page_num):
+    """競品情緒分布比較：圈碼洞察 + 100% 堆疊橫條圖"""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _header(slide, "競品情緒分布比較", page_num, brand, period)
+
+    pn_values = [(brand, sentiment["pn_value"])] + [
+        (c["name"], c["sentiment"]["pn_value"]) for c in competitor_data
+    ]
+    best = max(pn_values, key=lambda x: x[1] if isinstance(x[1], (int, float)) else 0)
+    _numbered_insight(slide, ML, Inches(0.95), CW, Inches(0.5), [
+        f"本期 P/N 值最高為「{best[0]}」（{best[1]}），"
+        f"{brand} 本期 P/N 值為 {sentiment['pn_value']}。"
+    ], size=12)
+
+    slide.shapes.add_picture(
+        f"{charts_dir}/competitor_sentiment.png",
+        ML, Inches(1.55), width=CW, height=Inches(5.2))
+
+
+def _slide_competitor_articles(prs, brand, period, competitor_data, page_num):
+    """競品熱門文章：各競品 TOP3 合併表格"""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _header(slide, "競品熱門文章", page_num, brand, period)
+
+    _numbered_insight(slide, ML, Inches(0.95), CW, Inches(0.5), [
+        "以下列出各競品本期互動數最高的 TOP3 文章，供對照本品牌熱門文章分析。",
+    ], size=12)
+
+    rows = []
+    for comp in competitor_data:
+        for art in comp["articles"][:3]:
+            rows.append((comp["name"], art))
+
+    if not rows:
+        return
+
+    tbl = slide.shapes.add_table(
+        len(rows) + 1, 5, ML, Inches(1.55), CW, Inches(5.3)
+    ).table
+    for i, cw in enumerate(
+        [Inches(1.6), Inches(1.3), Inches(1.9), Inches(5.75), Inches(1.78)]
+    ):
+        tbl.columns[i].width = cw
+    for j, hdr in enumerate(["品牌", "平台", "頻道", "標題", "互動（cc）"]):
+        _cell(tbl.cell(0, j), hdr, size=11, bold=True, color=C_WHITE,
+              bg=C_SLATE2, align=PP_ALIGN.CENTER)
+    for i, (name, art) in enumerate(rows, start=1):
+        bg = C_LIGHT if i % 2 == 0 else C_WHITE
+        _cell(tbl.cell(i, 0), name, bg=bg, bold=True)
+        _cell(tbl.cell(i, 1), art["source"], bg=bg, align=PP_ALIGN.CENTER)
+        _cell(tbl.cell(i, 2), _clean(art["channel"], 14), bg=bg)
+        _cell(tbl.cell(i, 3), _clean(art["title"], 40), bg=bg)
+        _cell(tbl.cell(i, 4), f"{art['engagement']:,}", bg=bg, align=PP_ALIGN.CENTER)
+
+
+def _slide_ai(prs, brand, period, ai_report, page_num=9):
     """AI 輿情洞察（雙欄版面）"""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _header(slide, "AI 輿情洞察", 8, brand, period)
+    _header(slide, "AI 輿情洞察", page_num, brand, period)
 
     secs = _parse_ai(ai_report)
 
@@ -474,15 +790,10 @@ def _slide_ai(prs, brand, period, ai_report):
         for l in secs.get("重點洞察", "").split('\n')
         if l.strip() and not l.strip().startswith('(')
     ]
-    insight_items = []
-    for line in raw_lines[:4]:
-        if len(line) > 78:
-            line = line[:78] + '…'
-        insight_items.append(f"● {line}")
-
-    _bullet_box(slide, lx, Inches(3.38),
-                col_w, Inches(3.52),
-                insight_items, size=12, spacing=8)
+    _numbered_insight(slide, lx, Inches(3.38),
+                       col_w, Inches(3.52),
+                       [l[:78] + ('…' if len(l) > 78 else '') for l in raw_lines[:4]],
+                       size=12, spacing=8)
 
     # ── 右欄 ─────────────────────────────────────────
     # 正面議題
@@ -514,7 +825,7 @@ def _slide_ai(prs, brand, period, ai_report):
     _rect(slide, rx, Inches(4.8), col_w, Inches(0.02), fill=C_LINE)
 
     # 建議行動
-    _section_label(slide, rx, Inches(4.87), "建議行動", color=C_TEAL)
+    _section_label(slide, rx, Inches(4.87), "建議行動", color=C_BLUE)
     act_lines = [
         _strip_md(l.strip())
         for l in secs.get("建議行動", "").split('\n')
@@ -526,27 +837,64 @@ def _slide_ai(prs, brand, period, ai_report):
                 size=12, spacing=6)
 
 
-def _slide_back(prs, brand, period):
-    """封底"""
+def _slide_conclusion(prs, brand, period, ai_report, page_num=10):
+    """結論：3 欄卡片（重點洞察／風險觀察／建議行動）"""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    _rect(slide, 0, 0, W, H, fill=C_HDR)
-    _rect(slide, 0, 0, Inches(0.45), H, fill=C_TEAL)
-    _rect(slide, Inches(0.45), 0, Inches(0.07), H,
-          fill=RGBColor(0x00, 0x50, 0x60))
+    _header(slide, "結論與建議", page_num, brand, period)
+
+    secs = _parse_ai(ai_report)
+    columns = [
+        ("重點洞察", secs.get("重點洞察", "")),
+        ("風險觀察", secs.get("風險觀察", "")),
+        ("建議行動", secs.get("建議行動", "")),
+    ]
+
+    gap = Inches(0.25)
+    col_w = Emu(int((CW - gap * 2) / 3))
+    header_h = Inches(0.6)
+    body_h = Inches(4.6)
+    top_y = Inches(1.2)
+
+    for i, (title, text) in enumerate(columns):
+        cx = ML + i * (col_w + gap)
+        _rect(slide, cx, top_y, col_w, header_h, fill=C_BLUE)
+        _tb(slide, cx, top_y + Inches(0.12), col_w, Inches(0.4),
+            title, size=16, bold=True, color=C_WHITE,
+            align=PP_ALIGN.CENTER, wrap=False)
+        _rect(slide, cx, top_y + header_h, col_w, body_h, fill=C_BLUE_L)
+
+        lines = [
+            _strip_md(l.strip().lstrip("-•0123456789.、 "))
+            for l in text.split('\n') if l.strip()
+        ][:5]
+        if not lines:
+            lines = ["（無資料）"]
+
+        _bullet_box(slide, cx + Inches(0.2), top_y + header_h + Inches(0.2),
+                    col_w - Inches(0.4), body_h - Inches(0.4),
+                    [f"• {l[:60]}" for l in lines],
+                    size=12, spacing=8, color=C_INK)
+
+
+def _slide_back(prs, brand, period):
+    """封底：白底 + 對角裝飾（與封面呼應）"""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+
+    _diagonal(slide, -Inches(1.8), -Inches(3.8), Inches(6.0), C_LIGHT)
+    _diagonal(slide, W - Inches(1.4), H - Inches(1.4), Inches(4.0), C_RED)
+    _diagonal(slide, -Inches(2.4), H - Inches(1.6), Inches(3.0), C_RED)
 
     _tb(slide, Inches(0.9), Inches(2.5), Inches(11.0), Inches(1.1),
-        brand, size=38, bold=True, color=C_WHITE)
+        brand, size=38, bold=True, color=C_INK)
     _tb(slide, Inches(0.9), Inches(3.7), Inches(10.0), Inches(0.6),
-        "網路輿情分析報告", size=20, color=C_TEAL)
-    _rect(slide, Inches(0.9), Inches(4.42), Inches(8.5), Inches(0.03),
-          fill=RGBColor(0x3A, 0x4A, 0x5E))
+        "網路輿情分析報告", size=20, color=C_RED)
+    _rect(slide, Inches(0.9), Inches(4.42), Inches(8.5), Inches(0.03), fill=C_LINE)
     _tb(slide, Inches(0.9), Inches(4.57), Inches(10.0), Inches(0.4),
         period, size=13, color=C_GRAY)
     _tb(slide, Inches(0.9), Inches(5.08), Inches(10.0), Inches(0.35),
         "資料來源｜KEYPO 大數據關鍵引擎", size=11, color=C_GRAY)
     _tb(slide, Inches(0.9), Inches(6.45), Inches(10.0), Inches(0.35),
-        "— 報告完 —", size=12,
-        color=RGBColor(0x00, 0xBB, 0xCC))
+        "— 報告完 —", size=12, color=C_SLATE)
 
 
 # ══════════════════════════════════════════════════════
@@ -558,10 +906,15 @@ def generate_ppt(
     keywords, kols, articles,
     sentiment, trend,
     start_date, end_date,
-    out_dir="output"
+    out_dir="output",
+    growth_info=None,
+    competitor_data=None,
+    table_captions=None
 ):
     charts_dir = f"{out_dir}/charts"
     os.makedirs(out_dir, exist_ok=True)
+    competitor_data = competitor_data or []
+    table_captions = table_captions or {}
 
     prs = Presentation()
     prs.slide_width  = Inches(13.33)
@@ -571,15 +924,48 @@ def generate_ppt(
     disp_e = format_date(end_date)
     period = f"{disp_s} – {disp_e}"
 
+    page = 1
     _slide_cover(prs, brand_name, period)
-    _slide_summary(prs, brand_name, period, trend, sentiment, keywords)
-    _slide_trend(prs, brand_name, period, trend, charts_dir)
-    _slide_sentiment(prs, brand_name, period, sentiment, charts_dir)
-    _slide_keywords(prs, brand_name, period, charts_dir)
-    _slide_wordcloud(prs, brand_name, period, charts_dir)
-    _slide_articles(prs, brand_name, period, articles)
-    _slide_kol(prs, brand_name, period, kols)
-    _slide_ai(prs, brand_name, period, ai_report)
+    _section_divider(prs, "網路輿情總覽", f"SOCIAL LISTENING OVERVIEW　｜　{period}", page)
+    page += 1
+    _slide_summary(prs, brand_name, period, trend, sentiment, keywords,
+                   growth_info=growth_info, page_num=page)
+    page += 1
+    _slide_trend(prs, brand_name, period, trend, articles, charts_dir,
+                 growth_info=growth_info, page_num=page)
+    page += 1
+    _slide_sentiment(prs, brand_name, period, sentiment, charts_dir, page_num=page)
+    page += 1
+    _slide_keywords(prs, brand_name, period, keywords, charts_dir, page_num=page,
+                     caption=table_captions.get("keywords"))
+    page += 1
+    _slide_wordcloud(prs, brand_name, period, charts_dir, page_num=page)
+    page += 1
+    _slide_articles(prs, brand_name, period, articles, page_num=page,
+                     caption=table_captions.get("articles"))
+    page += 1
+    _slide_kol(prs, brand_name, period, kols, page_num=page,
+               caption=table_captions.get("kol"))
+    page += 1
+
+    if competitor_data:
+        _section_divider(prs, "競品聲量分析",
+                          f"COMPETITOR ANALYSIS　｜　{period}", page)
+        page += 1
+        _slide_competitor_volume(prs, brand_name, period, trend, competitor_data,
+                                  charts_dir, page_num=page,
+                                  captions=table_captions.get("competitors"))
+        page += 1
+        _slide_competitor_sentiment(prs, brand_name, period, sentiment, competitor_data,
+                                     charts_dir, page_num=page)
+        page += 1
+        _slide_competitor_articles(prs, brand_name, period, competitor_data,
+                                    page_num=page)
+        page += 1
+
+    _slide_ai(prs, brand_name, period, ai_report, page_num=page)
+    page += 1
+    _slide_conclusion(prs, brand_name, period, ai_report, page_num=page)
     _slide_back(prs, brand_name, period)
 
     timestamp = datetime.now().strftime("%H%M%S")
