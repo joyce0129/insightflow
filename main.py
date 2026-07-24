@@ -2,12 +2,14 @@ import os
 from datetime import datetime, timedelta
 
 from local_ai_analyzer import (
-    analyze_with_ollama,
+    analyze_with_ai,
     narrative_for_articles,
     narrative_for_keywords,
     narrative_for_kol,
-    narrative_for_competitor
+    narrative_for_competitor,
+    narrative_for_trend
 )
+import ai_backend
 from ppt_generator import generate_ppt
 from keypo_fetcher import fetch_keypo_data, fetch_volume_only, fetch_endpoints
 
@@ -17,15 +19,17 @@ from keypo_loader import (
     parse_hot_keywords,
     parse_hotrank,
     parse_volume_trend,
-    parse_kol_channels
+    parse_kol_channels,
+    parse_kol_from_articles,
+    parse_source_distribution
 )
 
 from report_generator import generate_summary
-from detailed_report_generator import generate_detailed_report
 
 from chart_generator import (
     generate_volume_trend_chart,
     generate_sentiment_pie_chart,
+    generate_source_pie_chart,
     generate_keyword_bar_chart,
     generate_keyword_cloud,
     build_trend_callouts,
@@ -56,6 +60,8 @@ def main():
 
     print("=" * 50)
     print("InsightFlow AI 輿情分析系統")
+    print(f"AI 後端：{ai_backend.backend_name()}"
+          "（可用環境變數 AI_BACKEND 切換 ollama / claude / openai）")
     print("=" * 50)
 
     keyword = input(
@@ -130,6 +136,21 @@ def main():
         if competitor_input else []
     )
 
+    # 各競品自訂雜訊排除（選填；每個品牌雜訊不同，各自輸入）
+    competitor_exclusions = {}
+    if competitors:
+        print("\n各競品自訂雜訊排除（直接 Enter 跳過該品牌）")
+        print("  範例：!(代購|直播|販售文|二手衣出清)")
+        for comp in competitors:
+            excl = input(f"  {comp} 排除字串：").strip()
+            if excl:
+                competitor_exclusions[comp] = excl
+
+    # 產業／背景（供「分析架構與腳本」AI 推斷議題；直接 Enter 由 AI 依品牌推斷）
+    print("\n產業／背景（選填，直接 Enter 跳過；有助分析架構腳本的議題更精準）")
+    print("  範例：美妝保養／醫美級保養品；或 台北地標（觀景台、購物中心、信義商圈）")
+    industry_hint = input("  產業／背景：").strip()
+
     print(f"\n開始分析：{keyword}")
     print(f"查詢字串：{search_query}")
     print(f"分析期間：{start_date} ~ {end_date}")
@@ -138,6 +159,9 @@ def main():
         print(f"自訂排除：{custom_exclusion}")
     if competitors:
         print(f"競品分析：{'、'.join(competitors)}")
+        for comp in competitors:
+            if comp in competitor_exclusions:
+                print(f"  {comp} 自訂排除：{competitor_exclusions[comp]}")
 
     # =========================
     # 抓取 KEYPO 資料
@@ -219,6 +243,16 @@ def main():
     load_json("data/sprdtrnd.json")
     )
 
+    # 關鍵領袖多維指標（發表數／回文／按讚／互動總計）——依熱門文章實際發文者聚合，
+    # 對照 KEYPO 官方月報的四維 KOL 表；報告與 PPT 的 KOL 頁改用此資料。
+    kol_metrics = parse_kol_from_articles(articles)
+
+    # 來源類型分布（社群／新聞／討論區／部落格）——供 PPT「來源分布」頁與圓餅
+    source_dist = parse_source_distribution(articles)
+
+    # 聲量趨勢事件敘事——把前三大高峰對應到具體事件（Ollama，失敗自動退化）
+    trend_narrative = narrative_for_trend(trend, articles, source_dist, keyword)
+
     # =========================
     # 競品分析（選填）
     # =========================
@@ -232,7 +266,7 @@ def main():
                 comp, start_date, end_date, comp_dir,
                 ["freqdist", "sentidist", "hotrank"],
                 exclude_lottery=exclude_lottery,
-                custom_exclusion=custom_exclusion
+                custom_exclusion=competitor_exclusions.get(comp, "")
             )
             competitor_data.append({
                 "name": comp,
@@ -293,6 +327,7 @@ def main():
         trend, keyword, out_dir=charts_dir, callouts=trend_callouts
     )
     generate_sentiment_pie_chart(sentiment, keyword, out_dir=charts_dir)
+    generate_source_pie_chart(source_dist, keyword, out_dir=charts_dir)
     generate_keyword_bar_chart(keywords, out_dir=charts_dir)
     generate_keyword_cloud(keywords, out_dir=charts_dir)
 
@@ -312,7 +347,7 @@ def main():
     print("AI 洞察")
     print("=" * 60)
 
-    ai_report = analyze_with_ollama(
+    ai_report = analyze_with_ai(
         report,
         keywords=keywords,
         articles=articles,
@@ -338,9 +373,9 @@ def main():
             narrative_for_articles, articles
         ),
         "kol": _safe_caption(
-            f"{keyword} {period_text}，關鍵領袖聲量合計 "
-            f"{sum(k['volume'] for k in kols[:10]):,} 筆。",
-            narrative_for_kol, kols, articles
+            f"{keyword} {period_text}，關鍵領袖互動總計 "
+            f"{sum(k['engagement'] for k in kol_metrics[:10]):,} 次。",
+            narrative_for_kol, kol_metrics, articles
         ),
         "competitors": {
             c["name"]: _safe_caption(
@@ -354,49 +389,30 @@ def main():
     # =========================
     # 輸出資料夾
     # =========================
+    # 註：精簡摘要（summary）與 AI 洞察（ai_report）已整併進詳細報告 Word——
+    # §1/§3/§8 涵蓋摘要數據、§9 完整收錄 AI 六節洞察，故不再另存 summary.md / ai_insight.md。
 
     os.makedirs(out_dir, exist_ok=True)
 
-    with open(
-        f"{out_dir}/{keyword}_{report_start_date}_{report_end_date}_summary.md",
-        "w",
-        encoding="utf-8"
-    ) as f:
-        f.write(report)
-
-    with open(
-        f"{out_dir}/{keyword}_{report_start_date}_{report_end_date}_ai_insight.md",
-        "w",
-        encoding="utf-8"
-    ) as f:
-        f.write(ai_report)
-
     # =========================
-    # 產生詳細分析報告
+    # 產生詳細分析報告（Word 版，真表格，供正式交付）
     # =========================
-
-    detailed_report = generate_detailed_report(
-        keyword,
-        sentiment,
-        keywords,
-        articles,
-        trend,
-        kols,
-        ai_report,
-        report_start_date,
-        report_end_date,
-        growth_info=growth_info,
-        competitor_data=competitor_data,
-        table_captions=table_captions
-    )
-
-    detailed_path = (
-        f"{out_dir}/{keyword}_{report_start_date}"
-        f"_{report_end_date}_詳細分析報告.md"
-    )
-
-    with open(detailed_path, "w", encoding="utf-8") as f:
-        f.write(detailed_report)
+    try:
+        from detailed_report_docx import generate_detailed_report_docx
+        detailed_docx = (
+            f"{out_dir}/{keyword}_{report_start_date}"
+            f"_{report_end_date}_詳細分析報告.docx"
+        )
+        generate_detailed_report_docx(
+            keyword, sentiment, keywords, articles, trend, kol_metrics,
+            ai_report, report_start_date, report_end_date, detailed_docx,
+            growth_info=growth_info, competitor_data=competitor_data,
+            table_captions=table_captions, source_dist=source_dist,
+            trend_narrative=trend_narrative,
+        )
+        print(f"✅ 詳細報告 Word：{detailed_docx}")
+    except Exception as e:
+        print(f"詳細報告 Word 版產生失敗，已略過：{e}")
 
     # =========================
     # 產生 PPT
@@ -407,7 +423,7 @@ def main():
         report,
         ai_report,
         keywords,
-        kols,
+        kol_metrics,
         articles,
         sentiment,
         trend,
@@ -416,8 +432,31 @@ def main():
         out_dir=out_dir,
         growth_info=growth_info,
         competitor_data=competitor_data,
-        table_captions=table_captions
+        table_captions=table_captions,
+        source_dist=source_dist,
+        trend_narrative=trend_narrative
     )
+
+    # =========================
+    # 市場議題分析規劃（前瞻文件，AI 依品牌自動擬定議題，Word）
+    # 定位：規劃「接下來要分析哪些市場議題」，與本期單品牌數據報告（PPT）不同方向。
+    # 與報告同步產出，存到同一個 output/{品牌}/ 資料夾；失敗不影響前面產物。
+    # =========================
+
+    framework_path = None
+    try:
+        from framework_generator import build_config_with_ai, generate_framework
+        print("\n產生市場議題分析規劃（AI 前瞻擬定議題／矩陣／腳本）…")
+        fw_config = build_config_with_ai(
+            keyword,
+            industry=industry_hint,
+            competitors=competitors,
+            period=f"{start_date} – {end_date}",
+        )
+        framework_path = f"{out_dir}/市場議題分析規劃_{keyword}.docx"
+        generate_framework(fw_config, framework_path)
+    except Exception as e:
+        print(f"市場議題分析規劃產生失敗，已略過（不影響報告）：{e}")
 
     # =========================
     # 儲存本期快照（供下次比較用）
@@ -427,6 +466,8 @@ def main():
 
     print("\n✅ 已輸出報告、圖表與 PPT")
     print(f"✅ PPT 路徑：{ppt_path}")
+    if framework_path:
+        print(f"✅ 市場議題分析規劃：{framework_path}")
 
 
 if __name__ == "__main__":

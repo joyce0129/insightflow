@@ -181,6 +181,52 @@ def generate_sentiment_pie_chart(sentiment, brand_name="品牌", out_dir="output
     fig.savefig(f"{out_dir}/sentiment_pie.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
+SOURCE_COLORS = {
+    "社群":   "#3B7DD8",
+    "新聞":   "#526783",
+    "討論區": "#4371C3",
+    "部落格": "#7A7D82",
+}
+
+
+def generate_source_pie_chart(source_dist, brand_name="品牌", out_dir="output/charts"):
+    """來源類型分布甜甜圈圖（社群／新聞／討論區／部落格），僅繪出非零類別"""
+    import os
+
+    os.makedirs(out_dir, exist_ok=True)
+
+    plt.rcParams["font.sans-serif"] = ["Microsoft JhengHei"]
+    plt.rcParams["axes.unicode_minus"] = False
+
+    items = [it for it in source_dist["items"] if it["count"] > 0]
+    labels = [it["type"] for it in items]
+    values = [it["count"] for it in items]
+    colors = [SOURCE_COLORS.get(it["type"], "#9AA5B1") for it in items]
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    ax.pie(
+        values,
+        labels=labels,
+        autopct="%1.1f%%",
+        colors=colors,
+        startangle=90,
+        counterclock=False,
+        wedgeprops=dict(width=0.4, edgecolor="white"),
+        pctdistance=0.8,
+    )
+
+    ax.text(0, 0.08, "熱門文章", ha="center", va="center",
+            fontsize=12, color="#5B6470")
+    ax.text(0, -0.12, f"{source_dist['total']} 篇", ha="center", va="center",
+            fontsize=22, fontweight="bold", color="#1A233B")
+
+    ax.set_title(f"{brand_name} 來源分布")
+
+    fig.savefig(f"{out_dir}/source_pie.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
 def generate_keyword_bar_chart(keywords, out_dir="output/charts"):
 
     import os

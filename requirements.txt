@@ -1,0 +1,21 @@
+# InsightFlow 相依套件
+# 安裝：pip install -r requirements.txt
+
+# HTTP（Ollama 後端與一般請求）
+httpx
+
+# 圖表
+matplotlib
+wordcloud
+
+# 文件輸出
+python-pptx                     # 簡報
+python-docx                     # 分析架構/腳本 Word
+
+# AI 後端
+anthropic                       # claude 後端
+python-dotenv                   # 讀取 .env（API 金鑰、AI_BACKEND 等）
+opencc-python-reimplemented     # AI 輸出簡→繁（台灣用語）保險轉換
+
+# 選用：僅在 AI_BACKEND=openai 時需要
+# openai

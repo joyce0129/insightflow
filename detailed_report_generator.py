@@ -6,6 +6,8 @@ detailed_report_generator.py — 自動產生詳細輿情分析報告（Markdown
 import re
 from datetime import datetime
 
+from keypo_loader import classify_article, match_keywords_to_articles
+
 
 # ── 工具函式 ─────────────────────────────────────────
 
@@ -86,7 +88,8 @@ AI_CAPTION_NOTE = "（以上事件摘要由 AI 輔助生成，請核對後使用
 def generate_detailed_report(
     brand_name, sentiment, keywords, articles,
     trend, kols, ai_report, start_date, end_date,
-    growth_info=None, competitor_data=None, table_captions=None
+    growth_info=None, competitor_data=None, table_captions=None,
+    source_dist=None, trend_narrative=None
 ):
     table_captions = table_captions or {}
     today  = datetime.today().strftime("%Y/%m/%d")
@@ -149,7 +152,8 @@ def generate_detailed_report(
 
     if kols:
         h(f"  ▪ 最具影響力 KOL："
-          f"{kols[0]['platform']} {kols[0]['channel']}（{kols[0]['volume']}筆）。")
+          f"{kols[0]['platform']} {kols[0]['channel']}"
+          f"（互動 {kols[0].get('engagement', kols[0].get('volume', 0)):,}）。")
     br()
 
     # ══ §2 聲量趨勢 ═══════════════════════════════════
@@ -177,9 +181,14 @@ def generate_detailed_report(
     br()
 
     h("聲量觀察：")
-    h(f"  ▪ 高峰日 {trend['peak_date']} 聲量達 {trend['peak_volume']:,}筆，"
-      f"建議對照熱門文章確認事件驅動因素。")
-    h(f"  ▪ 週平均每日 {avg_vol:,}筆。")
+    if trend_narrative:
+        # 事件驅動敘事（總聲量＋來源結構＋各高峰對應具體事件）
+        for line in trend_narrative:
+            h(f"  ▪ {line}")
+    else:
+        h(f"  ▪ 高峰日 {trend['peak_date']} 聲量達 {trend['peak_volume']:,}筆，"
+          f"建議對照熱門文章確認事件驅動因素。")
+        h(f"  ▪ 週平均每日 {avg_vol:,}筆。")
     for line in _growth_lines(growth_info):
         h(f"  ▪ {line}")
 
@@ -188,6 +197,15 @@ def generate_detailed_report(
         h(f"  ▪ 末日聲量（{last_vol:,}筆）低於日均，"
           f"若為截止當天資料（非完整 24 小時）屬正常現象。")
     br()
+
+    if source_dist and source_dist.get("total"):
+        h("來源結構（依熱門文章來源類型，結構參考值）：")
+        parts = [
+            f"{it['type']} {it['count']}篇（{it['percent']}%）"
+            for it in source_dist["items"] if it["count"]
+        ]
+        h("  ▪ " + "、".join(parts) + "。")
+        br()
 
     # ══ §3 情緒分布 ═══════════════════════════════════
     div()
@@ -261,6 +279,19 @@ def generate_detailed_report(
         h(f"{kw['rank']:>4}  {kw['keyword']:<18}  {kw['count']:>10,}")
     br()
 
+    # 關鍵字對應事件（把關鍵字還原成代表性文章）
+    kw_events = match_keywords_to_articles(keywords, articles, top_n=8)
+    if kw_events:
+        h("關鍵字對應事件（TOP 8，取互動最高之命中文章）：")
+        for ke in kw_events:
+            art = ke.get("article")
+            if art:
+                event = f"[{art['source']}] {_clean(art.get('title', ''), 44)}"
+            else:
+                event = "（本期熱門文章未見直接對應）"
+            h(f"  ▪ {ke['keyword']}（命中 {ke['match_count']} 篇）：{event}")
+        br()
+
     if table_captions.get("keywords"):
         h(table_captions["keywords"])
         h(AI_CAPTION_NOTE)
@@ -272,12 +303,13 @@ def generate_detailed_report(
     div()
     br()
 
-    h(f"{'排名':>4}  {'平台':<10}  {'互動':>6}  {'按讚':>8}  {'頻道':<16}  標題")
-    h("─" * 90)
+    h(f"{'排名':>4}  {'平台':<10}  {'分類':<8}  {'互動':>6}  {'按讚':>8}  {'頻道':<16}  標題")
+    h("─" * 100)
     for art in articles[:10]:
-        title = _clean(art["title"], max_len=30)
+        title = _clean(art["title"], max_len=28)
         ch    = _clean(art["channel"], max_len=14)
-        h(f"{art['rank']:>4}  {art['source']:<10}  "
+        cls   = classify_article(art, brand_name)
+        h(f"{art['rank']:>4}  {art['source']:<10}  {cls:<8}  "
           f"{art['engagement']:>6,}  {art['likes']:>8,}  "
           f"{ch:<16}  {title}")
     br()
@@ -305,11 +337,14 @@ def generate_detailed_report(
     div()
     br()
 
-    h(f"{'排名':>4}  {'平台':<12}  {'頻道名稱':<22}  {'聲量（筆）':>10}")
-    h("─" * 56)
+    h(f"{'排名':>4}  {'平台':<10}  {'頻道名稱':<20}  "
+      f"{'發表':>5}  {'回文':>7}  {'按讚':>9}  {'互動總計':>10}")
+    h("─" * 82)
     for kol in kols[:10]:
-        h(f"{kol['rank']:>4}  {kol['platform']:<12}  "
-          f"{kol['channel']:<22}  {kol['volume']:>10,}")
+        ch = _clean(kol["channel"], max_len=18)
+        h(f"{kol['rank']:>4}  {kol['platform']:<10}  {ch:<20}  "
+          f"{kol.get('posts', 0):>5,}  {kol.get('replies', 0):>7,}  "
+          f"{kol.get('likes', 0):>9,}  {kol.get('engagement', 0):>10,}")
     br()
 
     if table_captions.get("kol"):
@@ -320,7 +355,8 @@ def generate_detailed_report(
     h("KOL 傳播分析：")
     if kols:
         h(f"  ▪ 最具影響力 KOL：{kols[0]['platform']} {kols[0]['channel']}"
-          f"（{kols[0]['volume']}筆），為本週聲量主要擴散來源。")
+          f"（互動總計 {kols[0].get('engagement', 0):,}、"
+          f"按讚 {kols[0].get('likes', 0):,}），為本週聲量主要擴散來源。")
 
     platforms = {}
     for kol in kols[:10]:
